@@ -1,0 +1,49 @@
+name: Build Windows exe
+
+on:
+  push:
+    tags: ["v*"]          # ex : git tag v1.0 && git push --tags
+  workflow_dispatch:      # lancement manuel depuis l'onglet Actions
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances Python
+        run: python -m pip install --upgrade pip -r requirements.txt
+
+      - name: Télécharger libmpv
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo shinchiro/mpv-winbuild-cmake --pattern "mpv-dev-x86_64-2*.7z" --dir mpvdev
+          7z e (Get-ChildItem mpvdev\*.7z | Select-Object -First 1).FullName libmpv-2.dll -y
+          if (-not (Test-Path libmpv-2.dll)) { throw "libmpv-2.dll introuvable" }
+
+      - name: Compiler avec PyInstaller
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name LecteurSurround --add-binary "libmpv-2.dll;." lecteur_surround.py
+
+      - name: Créer l'archive zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\LecteurSurround -DestinationPath LecteurSurround-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LecteurSurround-windows
+          path: LecteurSurround-windows.zip
+
+      - name: Publier une Release (si tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: LecteurSurround-windows.zip
