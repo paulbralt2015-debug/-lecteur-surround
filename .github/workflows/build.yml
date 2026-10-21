@@ -21,17 +21,29 @@ jobs:
       - name: Installer les dépendances Python
         run: python -m pip install --upgrade pip -r requirements.txt
 
-      - name: Télécharger libmpv
+      - name: Télécharger libmpv (avec chargeur Vulkan)
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download --repo shinchiro/mpv-winbuild-cmake --pattern "mpv-dev-x86_64-2*.7z" --dir mpvdev
-          7z e (Get-ChildItem mpvdev\*.7z | Select-Object -First 1).FullName libmpv-2.dll -y
-          if (-not (Test-Path libmpv-2.dll)) { throw "libmpv-2.dll introuvable" }
+          $url = "https://github.com/SubtitleEdit/support-files/releases/download/libmpv-2026-08-14b/libmpv2-win64.zip"
+          Invoke-WebRequest -Uri $url -OutFile libmpv.zip
+          Expand-Archive libmpv.zip -DestinationPath libmpv
+          $dll = Get-ChildItem libmpv -Recurse -Filter libmpv-2.dll | Select-Object -First 1
+          if (-not $dll) { throw "libmpv-2.dll introuvable dans l'archive" }
+          $hash = (Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256 libmpv-2.dll : $hash"
+          if ($hash -ne "f709c7ca8b183bec76b8158bf0c45c53018c63366750729352612f228ff7bdea") { throw "Empreinte SHA256 inattendue" }
+          Copy-Item $dll.FullName .
+          $vk = Get-ChildItem libmpv -Recurse -Filter vulkan-1.dll | Select-Object -First 1
+          if ($vk) { Copy-Item $vk.FullName . }
+          Get-ChildItem *.dll
 
       - name: Compiler avec PyInstaller
-        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name LecteurSurround --add-binary "libmpv-2.dll;." lecteur_surround.py
+        shell: pwsh
+        run: |
+          $pyArgs = @('--noconfirm','--clean','--onedir','--windowed','--name','LecteurSurround','--add-binary','libmpv-2.dll;.')
+          if (Test-Path vulkan-1.dll) { $pyArgs += @('--add-binary','vulkan-1.dll;.') }
+          $pyArgs += 'lecteur_surround.py'
+          python -m PyInstaller @pyArgs
 
       - name: Créer l'archive zip
         shell: pwsh
